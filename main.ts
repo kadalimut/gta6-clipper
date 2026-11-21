@@ -9,16 +9,34 @@
 // stand in for /bot and /output:
 //   mkdir -p out && MAKEFUN_BOT_DIR=. MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const BOT_DIR = process.env.MAKEFUN_BOT_DIR ?? '/bot';
 const OUTPUT_DIR = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
 mkdirSync(OUTPUT_DIR, { recursive: true });
+
+// Validate VIDEO.json before copying it, so a broken entry fails here
+// with a clear message instead of passing silently to the house gate:
+// it must parse as JSON and its url must be a YouTube video address.
+const videoPath = join(BOT_DIR, 'VIDEO.json');
+let videoUrl: unknown;
 try {
-  copyFileSync(join(BOT_DIR, 'VIDEO.json'), join(OUTPUT_DIR, 'VIDEO.json'));
+  const parsed: unknown = JSON.parse(readFileSync(videoPath, 'utf8'));
+  videoUrl = (parsed as { url?: unknown }).url;
 } catch (err) {
-  console.error(`VIDEO.json could not be copied from ${BOT_DIR}: ${(err as Error).message}`);
+  console.error(`VIDEO.json could not be read or parsed at ${videoPath}: ${(err as Error).message}`);
+  process.exit(1);
+}
+const youtubePattern = /^https:\/\/(www\.|m\.)?(youtube\.com\/(shorts\/|watch\?v=)|youtu\.be\/)[A-Za-z0-9_-]{11}/;
+if (typeof videoUrl !== 'string' || !youtubePattern.test(videoUrl)) {
+  console.error(`VIDEO.json has no valid YouTube video url (expected https://www.youtube.com/shorts/<id>, https://www.youtube.com/watch?v=<id> or https://youtu.be/<id>): ${String(videoUrl)}`);
+  process.exit(1);
+}
+try {
+  copyFileSync(videoPath, join(OUTPUT_DIR, 'VIDEO.json'));
+} catch (err) {
+  console.error(`VIDEO.json could not be copied from ${BOT_DIR} to ${OUTPUT_DIR}: ${(err as Error).message}`);
   process.exit(1);
 }
